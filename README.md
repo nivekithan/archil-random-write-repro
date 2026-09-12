@@ -4,12 +4,12 @@ Small random overwrites on an Archil v0.8.35 FUSE mount can block for approximat
 
 ## Requirements
 
-- Linux, Node.js 18 or newer, and GNU coreutils
+- Linux, Python 3, and GNU coreutils
 - Archil CLI v0.8.35 and an Archil disk
 - Mount credentials or IAM-role authentication
 - Permissions to mount and write to the test file
 
-The standalone Node.js script has no dependencies and uses synchronous positional writes on one open file.
+The standalone Python script has no external dependencies and uses `os.pwrite()` on one open write descriptor.
 
 ## Reproduce
 
@@ -37,33 +37,42 @@ Fully remount before each run to reset the local client cache:
 sudo --preserve-env=ARCHIL_MOUNT_TOKEN archil mount "$DISK" "$MOUNT" \
   --region aws-us-east-1 --statistics --max-cache-mb 954 --target-cache-mb 715
 
-sudo node reproduce.mjs "$MOUNT/random-write-repro.dat"
+sudo python3 reproduce.py "$MOUNT/random-write-repro.dat"
 
 # Flush pending data separately from the measured writes.
 time sudo archil unmount "$MOUNT"
 ```
 
-The script reads the entire file, closes the read descriptor, and opens a **write-only (`O_WRONLY`) descriptor** for **10,000 random six-byte `Heloo\n` overwrites**. Each write gets a fresh random byte offset from Node.js `crypto.randomInt()`, with no fixed seed or saved offset list. Offsets can repeat. It keeps the write descriptor open, preserves file size, and measures each write with a monotonic clock. There is no explicit workload `fsync()` or payload verification. Archil can still flush automatically, and clean unmount flushes pending data.
+The script reads the entire file, closes the read descriptor, and opens a **write-only (`O_WRONLY`) descriptor** for **10,000 random six-byte `Heloo\n` overwrites**. Python's `random.Random(16001)` generates the offsets during the loop, giving each run the same random offset sequence without a saved offset file. Offsets can repeat. It keeps the write descriptor open, preserves file size, and measures each write with a monotonic clock. There is no explicit workload `fsync()` or payload verification. Archil can still flush automatically, and clean unmount flushes pending data.
 
 To run a smaller batch, remount and pass a write count:
 
 ```bash
-sudo node reproduce.mjs "$MOUNT/random-write-repro.dat" 1000
+sudo python3 reproduce.py "$MOUNT/random-write-repro.dat" 1000
 ```
 
 ## Observed behavior
 
-One checked run of the current fresh-random-offset script on a 100 MiB file **did not reproduce the stall**:
+The Python script reproduced the approximately one-second stall in **three consecutive runs**, fully unmounting/remounting and pre-reading the same 100 MiB file before each run:
+
+| Run | Total write time | Longest write | Stalled write |
+|---|---:|---:|---:|
+| 1 | 1,327.20 ms | 1,007.94 ms | #4,193 |
+| 2 | 1,322.30 ms | 1,007.46 ms | #4,193 |
+| 3 | 1,338.38 ms | 1,007.58 ms | #4,193 |
+
+Example output:
 
 ```text
-File: 100 MiB; full pre-read: 353.11 ms
-10,000 random 6-byte writes: 372.08 ms
+File: 100 MiB; full pre-read: 370.85 ms
+10,000 random 6-byte writes (seed 16001): 1327.20 ms
 Logical bytes written: 60000
-Longest write: 17.44 ms
-Writes exceeding 100 ms: 0
+Longest write: 1007.94 ms
+Writes exceeding 100 ms: 1
+  Write #4193, offset 48615538: 1007.94 ms
 ```
 
-The earlier fixed-offset JavaScript version reproduced a 1,006.60 ms stall at write #4,193 with the separate read-then-write-only descriptor setup. A single read/write descriptor did not reproduce it in the checked runs. Whether the difference comes from access mode, reopening the file, or timing has not been isolated. Fresh random offsets are not yet a reliable reproduction of that pause.
+The earlier fixed-offset JavaScript version also reproduced the stall at write #4,193. A JavaScript version generating fresh offsets with `crypto.randomInt()` did not reproduce the pause in five checked runs. A single read/write descriptor did not reproduce it in the checked runs either. These observations do not isolate the effects of the offset sequence, access mode, reopening, or timing; write-only mode alone is not sufficient to trigger the stall.
 
 On a fully pre-read 100 MiB file with Archil v0.8.35:
 
@@ -72,7 +81,7 @@ On a fully pre-read 100 MiB file with Archil v0.8.35:
 | 1,000 six-byte random writes | 19.97 ms | 0.241 ms | 0 |
 | 10,000 six-byte random writes | 1,335 ms | 1,008 ms | 0 |
 
-These earlier measurements used fixed random offsets. The current script generates new offsets each run, so timing and the exact stall location may vary with the offset sequence, environment, and file state.
+These earlier measurements used the same seeded offset sequence. Timing and the exact stall location may vary with the environment and file state; a fixed seed makes the offsets repeatable, not the runtime scheduling.
 
 Additional observed results with the same six-byte payload and full-file pre-read:
 
