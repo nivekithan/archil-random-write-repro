@@ -43,7 +43,7 @@ sudo python3 reproduce.py "$MOUNT/random-write-repro.dat"
 time sudo archil unmount "$MOUNT"
 ```
 
-The script reads the entire file, closes the read descriptor, and opens a **write-only (`O_WRONLY`) descriptor** for **4,193 random six-byte `Heloo\n` overwrites**, stopping immediately after the write that stalled in the observed runs. Python's `random.Random(16001)` generates the offsets during the loop, giving each run the same random offset sequence without a saved offset file. Offsets can repeat. It keeps the write descriptor open, preserves file size, and measures each write with a monotonic clock. There is no explicit workload `fsync()` or payload verification. Archil can still flush automatically, and clean unmount flushes pending data.
+The script opens **one read/write (`O_RDWR`) descriptor**, reads the entire file with `os.read()`, and uses that same descriptor for **4,193 random six-byte `Heloo\n` overwrites** with `os.pwrite()`, stopping immediately after the write that stalled in the observed runs. Python's `random.Random(16001)` generates the offsets during the loop, giving each run the same random offset sequence without a saved offset file. Offsets can repeat. It preserves file size and measures each write with a monotonic clock. There is no explicit workload `fsync()` or payload verification. Archil can still flush automatically, and clean unmount flushes pending data.
 
 To run a smaller batch, remount and pass a write count:
 
@@ -57,8 +57,8 @@ With the current **4,193-write default**, the pause is intermittent. Three runs 
 
 | Descriptor setup | Run 1 longest write | Run 2 longest write | Run 3 longest write |
 |---|---:|---:|---:|
-| Read, close, open `O_WRONLY` (script default) | 10.48 ms | 10.37 ms | 9.63 ms |
-| One `O_RDWR` descriptor for pre-read and writes | **1,007.86 ms** | 9.82 ms | 9.92 ms |
+| Read, close, open `O_WRONLY` (earlier setup) | 10.48 ms | 10.37 ms | 9.63 ms |
+| One `O_RDWR` descriptor for pre-read and writes (current script) | **1,007.86 ms** | 9.82 ms | 9.92 ms |
 
 **Separate descriptors and write-only mode are not required to reproduce the stall.** The single-descriptor Python variant used `os.open(path, os.O_RDWR)`, pre-read with `os.read()`, and then called `os.pwrite()` on that same descriptor. Its stalled run ended at write #4,193, byte offset 48,615,538. A fixed seed does not guarantee the pause on every run.
 

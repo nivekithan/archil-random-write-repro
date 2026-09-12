@@ -14,18 +14,17 @@ size = os.stat(args.file).st_size
 if size != 100 * 1048576:
     parser.error("expected the included 100 MiB test file")
 
-start = time.monotonic()
-with open(args.file, "rb", buffering=0) as f:
-    while f.read(1048576):
-        pass
-print(f"File: 100 MiB; full pre-read: {(time.monotonic() - start) * 1000:.2f} ms")
-
 rng = random.Random(16001)
 payload = b"Heloo\n"
 slow = []
 longest = 0
-fd = os.open(args.file, os.O_WRONLY)
+fd = os.open(args.file, os.O_RDWR)
 try:
+    start = time.monotonic()
+    while os.read(fd, 1048576):
+        pass
+    print(f"File: 100 MiB; full pre-read: {(time.monotonic() - start) * 1000:.2f} ms")
+
     start = time.monotonic()
     for n in range(1, args.writes + 1):
         offset = rng.randrange(size - len(payload) + 1)
