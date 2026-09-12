@@ -5,7 +5,7 @@ import time
 
 parser = argparse.ArgumentParser(description="Reproduce small random-write stalls on Archil")
 parser.add_argument("file", help="Path to the included 100 MiB file copied onto Archil")
-parser.add_argument("writes", type=int, nargs="?", default=10000)
+parser.add_argument("writes", type=int, nargs="?", default=4193)
 args = parser.parse_args()
 if args.writes < 1:
     parser.error("writes must be positive")

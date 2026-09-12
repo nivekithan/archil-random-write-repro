@@ -43,7 +43,7 @@ sudo python3 reproduce.py "$MOUNT/random-write-repro.dat"
 time sudo archil unmount "$MOUNT"
 ```
 
-The script reads the entire file, closes the read descriptor, and opens a **write-only (`O_WRONLY`) descriptor** for **10,000 random six-byte `Heloo\n` overwrites**. Python's `random.Random(16001)` generates the offsets during the loop, giving each run the same random offset sequence without a saved offset file. Offsets can repeat. It keeps the write descriptor open, preserves file size, and measures each write with a monotonic clock. There is no explicit workload `fsync()` or payload verification. Archil can still flush automatically, and clean unmount flushes pending data.
+The script reads the entire file, closes the read descriptor, and opens a **write-only (`O_WRONLY`) descriptor** for **4,193 random six-byte `Heloo\n` overwrites**, stopping immediately after the write that stalled in the observed runs. Python's `random.Random(16001)` generates the offsets during the loop, giving each run the same random offset sequence without a saved offset file. Offsets can repeat. It keeps the write descriptor open, preserves file size, and measures each write with a monotonic clock. There is no explicit workload `fsync()` or payload verification. Archil can still flush automatically, and clean unmount flushes pending data.
 
 To run a smaller batch, remount and pass a write count:
 
@@ -53,7 +53,26 @@ sudo python3 reproduce.py "$MOUNT/random-write-repro.dat" 1000
 
 ## Observed behavior
 
-The Python script reproduced the approximately one-second stall in **three consecutive runs**, fully unmounting/remounting and pre-reading the same 100 MiB file before each run:
+With the current **4,193-write default**, the pause is intermittent. Three runs of each Python descriptor setup used the same seed and file, fully remounting and pre-reading before each run:
+
+| Descriptor setup | Run 1 longest write | Run 2 longest write | Run 3 longest write |
+|---|---:|---:|---:|
+| Read, close, open `O_WRONLY` (script default) | 10.48 ms | 10.37 ms | 9.63 ms |
+| One `O_RDWR` descriptor for pre-read and writes | **1,007.86 ms** | 9.82 ms | 9.92 ms |
+
+**Separate descriptors and write-only mode are not required to reproduce the stall.** The single-descriptor Python variant used `os.open(path, os.O_RDWR)`, pre-read with `os.read()`, and then called `os.pwrite()` on that same descriptor. Its stalled run ended at write #4,193, byte offset 48,615,538. A fixed seed does not guarantee the pause on every run.
+
+Example output from that single-descriptor run:
+
+```text
+4,193 random 6-byte writes (seed 16001): 1160.45 ms
+Logical bytes written: 25158
+Longest write: 1007.86 ms
+Writes exceeding 100 ms: 1
+  Write #4193, offset 48615538: 1007.86 ms
+```
+
+The earlier 10,000-write configuration reproduced the approximately one-second stall in **three consecutive runs**, fully unmounting/remounting and pre-reading the same 100 MiB file before each run:
 
 | Run | Total write time | Longest write | Stalled write |
 |---|---:|---:|---:|
@@ -61,7 +80,7 @@ The Python script reproduced the approximately one-second stall in **three conse
 | 2 | 1,322.30 ms | 1,007.46 ms | #4,193 |
 | 3 | 1,338.38 ms | 1,007.58 ms | #4,193 |
 
-Example output:
+Earlier 10,000-write output:
 
 ```text
 File: 100 MiB; full pre-read: 370.85 ms
@@ -72,7 +91,7 @@ Writes exceeding 100 ms: 1
   Write #4193, offset 48615538: 1007.94 ms
 ```
 
-The earlier fixed-offset JavaScript version also reproduced the stall at write #4,193. A JavaScript version generating fresh offsets with `crypto.randomInt()` did not reproduce the pause in five checked runs. A single read/write descriptor did not reproduce it in the checked runs either. These observations do not isolate the effects of the offset sequence, access mode, reopening, or timing; write-only mode alone is not sufficient to trigger the stall.
+The earlier fixed-offset JavaScript version also reproduced the stall at write #4,193. A JavaScript version generating fresh offsets with `crypto.randomInt()` did not reproduce the pause in five checked runs. These observations do not isolate the effects of the offset sequence or timing; write-only mode alone is not sufficient to trigger the stall.
 
 On a fully pre-read 100 MiB file with Archil v0.8.35:
 
