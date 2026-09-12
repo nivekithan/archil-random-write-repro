@@ -42,9 +42,7 @@ The script opens **one read/write (`O_RDWR`) descriptor**, reads the entire file
 
 ## Observed behavior
 
-With the current **4,193-write default**, the pause is intermittent. Three runs of each Python descriptor setup used the same seed and file.
-
-Example output from that single-descriptor run:
+Example output from the run:
 
 ```text
 4,193 random 6-byte writes (seed 16001): 1160.45 ms
@@ -55,4 +53,4 @@ Writes exceeding 100 ms: 1
 ```
 
 
-Reference environment: Linux, Archil v0.8.35, AWS `c7i.large` (2 vCPUs, 4 GiB RAM), disk and host in `us-east-1`, 954 MiB maximum / 715 MiB target client cache, no FUSE writeback-cache flag. The table reports earlier measurements; the script prints the results for your run.
+Reference environment: Linux, Archil v0.8.35, AWS `c7i.large` (2 vCPUs, 4 GiB RAM), disk and host in `us-east-1`, 954 MiB maximum / 715 MiB target client cache.
