@@ -1,4 +1,5 @@
-import { closeSync, constants, fstatSync, openSync, readFileSync, readSync, writeSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readSync, writeSync } from 'node:fs';
+import { randomInt } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 
 const [path, count = '10000'] = process.argv.slice(2);
@@ -7,10 +8,6 @@ if (!path || process.argv.length > 4 || !Number.isSafeInteger(writes) || writes 
   console.error('Usage: node reproduce.mjs FILE [WRITES=10000]');
   process.exit(1);
 }
-
-// Fixed input offsets make the workload identical across runtimes and runs.
-const offsets = JSON.parse(readFileSync(new URL('./offsets.json', import.meta.url), 'utf8'));
-if (writes > offsets.length) throw new Error(`Maximum write count: ${offsets.length}`);
 
 const payload = Buffer.from('Heloo\n');
 let fd = openSync(path, 'r');
@@ -29,7 +26,7 @@ try {
   let longest = 0;
   const start = performance.now();
   for (let n = 1; n <= writes; n++) {
-    const offset = offsets[n - 1];
+    const offset = randomInt(size - payload.length + 1);
     const before = performance.now();
     const written = writeSync(fd, payload, 0, payload.length, offset);
     const elapsed = performance.now() - before;

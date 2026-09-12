@@ -43,7 +43,7 @@ sudo node reproduce.mjs "$MOUNT/random-write-repro.dat"
 time sudo archil unmount "$MOUNT"
 ```
 
-The script reads the entire file, closes the read descriptor, and opens a **write-only (`O_WRONLY`) descriptor** for **10,000 random six-byte `Heloo\n` overwrites**. `offsets.json` contains the fixed random byte offsets (generated using Python's MT19937, seed `16001`); no Python is required to run it. It keeps the write descriptor open, preserves file size, and measures each write with a monotonic clock. There is no explicit workload `fsync()` or payload verification. Archil can still flush automatically, and clean unmount flushes pending data.
+The script reads the entire file, closes the read descriptor, and opens a **write-only (`O_WRONLY`) descriptor** for **10,000 random six-byte `Heloo\n` overwrites**. Each write gets a fresh random byte offset from Node.js `crypto.randomInt()`, with no fixed seed or saved offset list. Offsets can repeat. It keeps the write descriptor open, preserves file size, and measures each write with a monotonic clock. There is no explicit workload `fsync()` or payload verification. Archil can still flush automatically, and clean unmount flushes pending data.
 
 To run a smaller batch, remount and pass a write count:
 
@@ -53,18 +53,17 @@ sudo node reproduce.mjs "$MOUNT/random-write-repro.dat" 1000
 
 ## Observed behavior
 
-Output from this Node.js script on a 100 MiB file:
+One checked run of the current fresh-random-offset script on a 100 MiB file **did not reproduce the stall**:
 
 ```text
-File: 100 MiB; full pre-read: 353.97 ms
-10,000 random 6-byte writes: 1324.77 ms
+File: 100 MiB; full pre-read: 353.11 ms
+10,000 random 6-byte writes: 372.08 ms
 Logical bytes written: 60000
-Longest write: 1006.60 ms
-Writes exceeding 100 ms: 1
-  Write #4193, offset 48615538: 1006.60 ms
+Longest write: 17.44 ms
+Writes exceeding 100 ms: 0
 ```
 
-**The open mode matters:** using one `O_RDWR` descriptor for both reading and writing did not reproduce the one-second pause in the checked runs. The script deliberately closes the read descriptor and opens a write-only descriptor.
+The earlier fixed-offset JavaScript version reproduced a 1,006.60 ms stall at write #4,193 with the separate read-then-write-only descriptor setup. A single read/write descriptor did not reproduce it in the checked runs. Whether the difference comes from access mode, reopening the file, or timing has not been isolated. Fresh random offsets are not yet a reliable reproduction of that pause.
 
 On a fully pre-read 100 MiB file with Archil v0.8.35:
 
@@ -73,7 +72,7 @@ On a fully pre-read 100 MiB file with Archil v0.8.35:
 | 1,000 six-byte random writes | 19.97 ms | 0.241 ms | 0 |
 | 10,000 six-byte random writes | 1,335 ms | 1,008 ms | 0 |
 
-The included offsets match these earlier measurements. Timing and the exact stall location may vary with the environment and file state.
+These earlier measurements used fixed random offsets. The current script generates new offsets each run, so timing and the exact stall location may vary with the offset sequence, environment, and file state.
 
 Additional observed results with the same six-byte payload and full-file pre-read:
 
