@@ -1,5 +1,7 @@
 # Archil random-write stall reproduction
 
+For the sustained-write reproduction with approximately 30-second stalls and an EBS comparison, see **[Long write stalls](LONG-WRITE-STALLS.md)**.
+
 Small random overwrites on an Archil v0.8.35 FUSE mount can block for approximately one second.
 
 ## Requirements
