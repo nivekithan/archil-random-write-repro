@@ -63,4 +63,17 @@ Writes exceeding 100 ms: 3
 
 The 10-, 25-, and 30-second stalls coincided with `commit_unconditional` retries reporting `reason=server_timeout`. The associated `cache_full` syncs pushed approximately 3 MiB each. The seed repeats the offset sequence, but exact stall positions and durations may vary.
 
-Reference environment: Linux 6.18.44, Archil v0.8.35 (build `e8be7043`), AWS `c7i.large` (2 vCPUs, 4 GiB RAM), disk and host in `us-east-1`, 954 MiB maximum / 715 MiB target client cache, no FUSE writeback-cache flag.
+## EBS comparison
+
+The same script was run on the same instance's gp3 EBS volume with XFS: a fresh 100 MiB file, full pre-read, seed `16001`, one `O_RDWR` descriptor, and no explicit workload `fsync()`.
+
+| Metric | EBS gp3 / XFS | Archil |
+|---|---:|---:|
+| Writes completed | 42,442,092 | 176,147 |
+| Actual write-loop duration | 60.00 s | 69.75 s |
+| Longest individual write | 45.15 ms | 30.15 s |
+| Writes exceeding 100 ms | 0 | 3 |
+
+EBS's separate post-workload `fsync()` took **134.51 ms**. This is a buffered-filesystem comparison: Linux can absorb and combine writes in its page cache, so application write counts are not physical EBS IOPS. EBS did not reproduce the multi-second stalls in this run.
+
+Reference environment: Linux 6.18.44, Archil v0.8.35 (build `e8be7043`), AWS `c7i.large` (2 vCPUs, 4 GiB RAM), disk and host in `us-east-1`, 954 MiB maximum / 715 MiB target client cache, no FUSE writeback-cache flag. EBS: encrypted 30 GiB gp3, 3,000 IOPS / 125 MiB/s.
