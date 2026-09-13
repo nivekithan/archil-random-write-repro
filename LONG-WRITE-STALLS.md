@@ -1,6 +1,6 @@
 # Archil long random-write stall reproduction
 
-Sustained six-byte random overwrites on an Archil v0.8.35 FUSE mount can block individual writes for **approximately 30 seconds**, even after the entire 100 MiB file has been read.
+Sustained six-byte random overwrites on an Archil v0.8.35 FUSE mount can block individual writes for **approximately 30 seconds**.
 
 ## Requirements
 
@@ -8,8 +8,6 @@ Sustained six-byte random overwrites on an Archil v0.8.35 FUSE mount can block i
 - Archil CLI v0.8.35 and an Archil disk
 - Mount credentials or IAM-role authentication
 - Permissions to mount and write to the test file
-
-The standalone Python script has no external dependencies and uses `os.pwrite()` on one open write descriptor.
 
 ## Reproduce
 
@@ -41,13 +39,11 @@ sudo python3 reproduce-long-stalls.py "$MOUNT/random-write-repro.dat"
 sudo archil unmount "$MOUNT"
 ```
 
-The script opens **one read/write (`O_RDWR`) descriptor**, reads the entire file with `os.read()`, and uses that same descriptor for **60 seconds of random six-byte `Heloo\n` overwrites** with `os.pwrite()`. It generates offsets using `random.Random(16001)` and keeps the file size unchanged. It does not explicitly call `fsync()` or verify payloads; Archil can still flush automatically.
-
-The duration is a target: a write started before the deadline can block past it. Per-write timings cover `os.pwrite()` only; pre-read, close, and unmount are outside write-loop timing. Fully unmount and remount before each run. To change the duration, pass `--seconds 120`.
+The script opens **one read/write (`O_RDWR`) descriptor**, reads the entire file with `os.read()`, and uses that same descriptor for **60 seconds of random six-byte `Heloo\n` overwrites** with `os.pwrite()`. It generates offsets using `random.Random(16001)`.
 
 ## Observed behavior
 
-The script completed 176,147 writes in **69.75 seconds** despite its 60-second target, using a newly created zero-filled 100 MiB file:
+The script completed 176,147 writes in **69.75 seconds**, using a newly created zero-filled 100 MiB file:
 
 ```text
 File: 100 MiB; full pre-read: 355.07 ms
@@ -61,11 +57,11 @@ Writes exceeding 100 ms: 3
   Write #176147, offset 88156081: 30146.08 ms
 ```
 
-The 10-, 25-, and 30-second stalls coincided with `commit_unconditional` retries reporting `reason=server_timeout`. The associated `cache_full` syncs pushed approximately 3 MiB each. The seed repeats the offset sequence, but exact stall positions and durations may vary.
+The 10-, 25-, and 30-second stalls coincided with `commit_unconditional` retries reporting `reason=server_timeout`. 
 
 ## EBS comparison
 
-The same script was run on the same instance's gp3 EBS volume with XFS: a fresh 100 MiB file, full pre-read, seed `16001`, one `O_RDWR` descriptor, and no explicit workload `fsync()`.
+The same script ran on the same instance's gp3 EBS volume with XFS: a fresh 100 MiB file, full pre-read, seed `16001`, and one `O_RDWR` descriptor.
 
 | Metric | EBS gp3 / XFS | Archil |
 |---|---:|---:|
@@ -74,6 +70,5 @@ The same script was run on the same instance's gp3 EBS volume with XFS: a fresh 
 | Longest individual write | 45.15 ms | 30.15 s |
 | Writes exceeding 100 ms | 0 | 3 |
 
-EBS's separate post-workload `fsync()` took **134.51 ms**. This is a buffered-filesystem comparison: Linux can absorb and combine writes in its page cache, so application write counts are not physical EBS IOPS. EBS did not reproduce the multi-second stalls in this run.
 
-Reference environment: Linux 6.18.44, Archil v0.8.35 (build `e8be7043`), AWS `c7i.large` (2 vCPUs, 4 GiB RAM), disk and host in `us-east-1`, 954 MiB maximum / 715 MiB target client cache, no FUSE writeback-cache flag. EBS: encrypted 30 GiB gp3, 3,000 IOPS / 125 MiB/s.
+Reference environment: Linux 6.18.44, Archil v0.8.35 (build `e8be7043`), AWS `c7i.large` (2 vCPUs, 4 GiB RAM), disk and host in `us-east-1`, 954 MiB maximum / 715 MiB target client cache. EBS: encrypted 30 GiB gp3, 3,000 IOPS / 125 MiB/s.
